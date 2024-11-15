@@ -6,7 +6,7 @@ import joblib  # Make ogb loads faster...idk
 from ogb.linkproppred import PygLinkPropPredDataset, Evaluator
 
 from util.utils import *
-from util.read_datasets import read_data_ogb, read_data_planetoid
+from util.read_datasets import read_data_ogb, read_data_planetoid, read_data_supplygraph
 from train.train_model import train_data, test, compute_all_ppr, test_by_all, test_with_att
 
 from models.other_models import mlp_score
@@ -19,7 +19,9 @@ def save_test_att(cmd_args):
     """
     device = torch.device(f'cuda:{cmd_args.device}' if torch.cuda.is_available() else 'cpu')
 
-    if cmd_args.data_name.lower() in ['cora', 'citeseer', 'pubmed']:
+    if cmd_args.data_name.lower() in ['supplygraph']:
+        data = read_data_supplygraph(cmd_args, device)
+    elif cmd_args.data_name.lower() in ['cora', 'citeseer', 'pubmed']:
         data = read_data_planetoid(cmd_args, device)
     else:
         data = read_data_ogb(cmd_args, device)
@@ -70,7 +72,9 @@ def eval_model(cmd_args):
     k_list = [20, 50, 100]
     device = torch.device(f'cuda:{cmd_args.device}' if torch.cuda.is_available() else 'cpu')
 
-    if cmd_args.data_name.lower() in ['cora', 'citeseer', 'pubmed']:
+    if cmd_args.data_name.lower() in ['supplygraph']:
+        data = read_data_supplygraph(cmd_args, device)
+    elif cmd_args.data_name.lower() in ['cora', 'citeseer', 'pubmed']:
         data = read_data_planetoid(cmd_args, device)
     else:
         data = read_data_ogb(cmd_args, device)
@@ -156,7 +160,9 @@ def run_model(cmd_args):
     device = torch.device(f'cuda:{cmd_args.device}' if torch.cuda.is_available() else 'cpu')
     # device = "cpu"  # DEBUG
 
-    if cmd_args.data_name.lower() in ['cora', 'citeseer', 'pubmed', 'chameleon', 'squirrel']:
+    if cmd_args.data_name.lower() in ['supplygraph']:
+        data = read_data_supplygraph(cmd_args, device)
+    elif cmd_args.data_name.lower() in ['cora', 'citeseer', 'pubmed', 'chameleon', 'squirrel']:
         data = read_data_planetoid(cmd_args, device)
     else:
         data = read_data_ogb(cmd_args, device)

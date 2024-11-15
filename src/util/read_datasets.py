@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from torch_sparse import SparseTensor
 from torch.nn.init import xavier_uniform_
+import random
 
 import torch_geometric.transforms as T
 from torch_geometric.utils import to_undirected, degree
@@ -147,7 +148,148 @@ def read_data_ogb(args, device):
     return data_obj
 
 
+def read_data_supplygraph(args, device):
+    data_name = args.data_name
+    node_set = set()
+    node_map = {}
+    node_idx = 0
+    train_pos, valid_pos, test_pos = [], [], []
+    train_neg, valid_neg, test_neg = [], [], []
+    node_feat = []
 
+    path = os.path.join(DATA_DIR, data_name, "train.csv")
+    for line in open(path, 'r'):
+        sub, obj, edget = line.strip().split(',')
+        if not node_map.__contains__(sub):
+            node_map[sub] = node_idx
+            node_idx = node_idx + 1
+            node_feat.append([1, 0, 0])
+        if not node_map.__contains__(obj):
+            node_map[obj] = node_idx
+            node_idx = node_idx + 1
+            if edget == 'Product-Plant':
+                node_feat.append([0, 1, 0])
+            else:
+                node_feat.append([0, 0, 1])
+        node_set.add(node_map[sub])
+        node_set.add(node_map[obj])
+
+        if node_map[sub] == node_map[obj]:
+            continue
+        train_pos.append((node_map[sub], node_map[obj]))
+    path = os.path.join(DATA_DIR, data_name, "test.csv")
+    for line in open(path, 'r'):
+        sub, obj, edget = line.strip().split(',')
+        if not node_map.__contains__(sub):
+            node_map[sub] = node_idx
+            node_idx = node_idx + 1
+            node_feat.append([1, 0, 0])
+        if not node_map.__contains__(obj):
+            node_map[obj] = node_idx
+            node_idx = node_idx + 1
+            if edget == 'Product-Plant':
+                node_feat.append([0, 1, 0])
+            else:
+                node_feat.append([0, 0, 1])
+        node_set.add(node_map[sub])
+        node_set.add(node_map[obj])
+
+        if node_map[sub] == node_map[obj]:
+            continue
+        test_pos.append((node_map[sub], node_map[obj]))
+    path = os.path.join(DATA_DIR, data_name, "val.csv")
+    for line in open(path, 'r'):
+        sub, obj, edget = line.strip().split(',')
+        if not node_map.__contains__(sub):
+            node_map[sub] = node_idx
+            node_idx = node_idx + 1
+            node_feat.append([1, 0, 0])
+        if not node_map.__contains__(obj):
+            node_map[obj] = node_idx
+            node_idx = node_idx + 1
+            if edget == 'Product-Plant':
+                node_feat.append([0, 1, 0])
+            else:
+                node_feat.append([0, 0, 1])
+        node_set.add(node_map[sub])
+        node_set.add(node_map[obj])
+
+        if node_map[sub] == node_map[obj]:
+            continue
+        valid_pos.append((node_map[sub], node_map[obj]))
+    num_nodes = len(node_set)
+
+    for i in range(20):
+        u = random.randint(0, num_nodes - 1)
+        v = random.randint(0, num_nodes - 1)
+        while (u, v) in valid_pos or (u, v) in train_pos or (u, v) in test_pos:
+            u = random.randint(0, num_nodes - 1)
+            v = random.randint(0, num_nodes - 1)
+        print(u, v)
+        if i < 10:
+            test_neg.append((u, v))
+        else:
+            valid_neg.append((u, v))
+
+
+    print('# of nodes in ' + data_name + ' is: ', num_nodes)
+
+    train_edge = torch.transpose(torch.tensor(train_pos), 1, 0)
+    edge_index = torch.cat((train_edge,  train_edge[[1,0]]), dim=1)
+    edge_weight = torch.ones(edge_index.size(1))
+          
+    train_pos_tensor = torch.tensor(train_pos)
+
+    valid_pos = torch.tensor(valid_pos)
+    valid_neg = torch.tensor(valid_neg)
+
+    test_pos = torch.tensor(test_pos)
+    test_neg = torch.tensor(test_neg)
+
+    idx = torch.randperm(train_pos_tensor.size(0))
+    idx = idx[:valid_pos.size(0)]
+    train_val = train_pos_tensor[idx]
+
+    feature_embeddings = torch.tensor(node_feat, dtype=torch.float32)
+
+    data = {"dataset": args.data_name}
+    data['edge_index'] = edge_index.to(device)
+    data['num_nodes'] = num_nodes
+
+    data['train_pos'] = train_pos_tensor.to(device)
+    data['train_pos_val'] = train_val.to(device)
+
+    data['valid_pos'] = valid_pos.to(device)
+    data['valid_neg'] = valid_neg.to(device)
+    data['test_pos'] = test_pos.to(device)
+    data['test_neg'] = test_neg.to(device)
+
+    data['x'] = feature_embeddings.to(device)
+
+    data['adj_t'] = SparseTensor.from_edge_index(edge_index, edge_weight, [num_nodes, num_nodes]).to(device)
+    data['full_adj_t'] = data['adj_t'].to(device)
+
+    data['adj_mask'] = data['adj_t'].to_torch_sparse_coo_tensor()
+    data['full_adj_mask'] = data['adj_mask'] = data['adj_mask'].coalesce()
+
+    ### Degree of nodes
+    data['degree'] = degree(data['edge_index'][0], num_nodes=data['num_nodes']).to(device)
+
+    ### Load PPR Matrix
+    data['ppr'] = get_ppr(args.data_name, data['edge_index'], data['num_nodes'],
+                          0.15, args.eps, False).to(device)
+    data['ppr_test'] = data['ppr']
+
+    # Overwrite standard negative
+    if args.heart:
+        with open(f'{HEART_DIR}/{args.data_name}/heart_valid_samples.npy', "rb") as f:
+            neg_valid_edge = np.load(f)
+            data['valid_neg'] = torch.from_numpy(neg_valid_edge)
+        with open(f'{HEART_DIR}/{args.data_name}/heart_test_samples.npy', "rb") as f:
+            neg_test_edge = np.load(f)
+            data['test_neg'] = torch.from_numpy(neg_test_edge)
+
+    return data
 
 def read_data_planetoid(args, device):
     """
@@ -172,9 +314,7 @@ def read_data_planetoid(args, device):
             if sub == obj:
                 continue
 
-            if split == 'train': 
-                train_pos.append((sub, obj))
-                
+            if split == 'train': train_pos.append((sub, obj))
             if split == 'valid': valid_pos.append((sub, obj))  
             if split == 'test': test_pos.append((sub, obj))
     

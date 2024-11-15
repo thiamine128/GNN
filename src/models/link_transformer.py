@@ -103,6 +103,7 @@ class LinkTransformer(nn.Module):
         x_i, x_j = X_node[batch[0]], X_node[batch[1]]
         elementwise_edge_feats = self.elementwise_lin(x_i * x_j)
 
+        # pairwise_feats = s(a, b) || # of each type
         pairwise_feats, att_weights = self.calc_pairwise(batch, X_node, test_set, adj_mask=adj_mask, return_weights=return_weights)
         combined_feats = torch.cat((elementwise_edge_feats, pairwise_feats), dim=-1)
 
@@ -191,6 +192,7 @@ class LinkTransformer(nn.Module):
         torch.Tensor
             Concatenated encodings for cn and 1-hop
         """
+        ## rpe here
         cn_a = self.ppr_encoder_cn(torch.stack((cn_info[1], cn_info[2])).t())
         cn_b = self.ppr_encoder_cn(torch.stack((cn_info[2], cn_info[1])).t())
         cn_pe = cn_a + cn_b

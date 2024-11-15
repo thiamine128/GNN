@@ -156,7 +156,7 @@ def train_data(args, train_args, data, device, verbose=True):
         'Hits@50': Logger(args.runs),
         'Hits@100': Logger(args.runs),
     }
-    if "citation" in data['dataset'] or data['dataset'] in ['cora', 'citeseer', 'pubmed',  'chameleon', 'squirrel'] or args.heart:
+    if "citation" in data['dataset'] or data['dataset'] in ['cora', 'citeseer', 'pubmed',  'chameleon', 'squirrel', 'supplygraph'] or args.heart:
         loggers['MRR'] = Logger(args.runs)
 
     # Over N splits
