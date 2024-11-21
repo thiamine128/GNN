@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv
 from torch_sparse.matmul import spmm_max, spmm_mean, spmm_add
-
+from kan import *
     
 
 
@@ -138,7 +138,30 @@ class MLP(nn.Module):
         return torch.sigmoid(x) if self.sigmoid else x
 
 
+class kan_score(torch.nn.Module):
+    def __init__(
+        self, 
+        in_channels, 
+        hidden_channels, 
+        out_channels, 
+        num_layers,
+        dropout=0
+    ):
+        super(kan_score, self).__init__()
 
+        width = [in_channels]
+        for i in range(num_layers - 2):
+            width.append(hidden_channels)
+        width.append(1)
+        self.kan = KAN(width=width, grid=3, k=3)
+
+
+    def reset_parameters(self):
+        self.kan.reset_parameters()
+
+    def forward(self, x):
+        x = self.kan(x)
+        return torch.sigmoid(x).squeeze(-1)
 class mlp_score(torch.nn.Module):
     """
     MLP score function

@@ -1,10 +1,12 @@
 import os
 import torch
+import time
 from tqdm import tqdm
 from datetime import datetime   
 from torch.utils.data import DataLoader
 from torch_sparse import SparseTensor
-
+from torch.utils.tensorboard import SummaryWriter
+from kan import *
 
 import joblib  # Make ogb loads faster...idk
 from ogb.linkproppred import PygLinkPropPredDataset, Evaluator
@@ -12,12 +14,11 @@ from ogb.linkproppred import PygLinkPropPredDataset, Evaluator
 from util.utils import *
 from train.testing import *
 
-from models.other_models import mlp_score
+from models.other_models import mlp_score, kan_score
 from models.link_transformer import LinkTransformer
 
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "dataset")
-
 
 
 def train_epoch(model, score_func, data, optimizer, args, device):
@@ -88,26 +89,29 @@ def train_loop(args, train_args, data, device, loggers, seed, model_save_name, v
     """
     Train over N epochs
     """
+    timestamp = int(time.time())
+    writer = SummaryWriter(f'runs/kan_{timestamp}')
     k_list = [20, 50, 100]
     eval_metric = args.metric
     evaluator_hit = Evaluator(name='ogbl-collab')
     evaluator_mrr = Evaluator(name='ogbl-citation2') if 'MRR' in loggers else None
 
     model = LinkTransformer(train_args, data, device=device).to(device)
-    score_func = mlp_score(model.out_dim, model.out_dim, 1, args.pred_layers, train_args['pred_dropout']).to(device)
-                        
+    # score_func = mlp_score(model.out_dim, model.out_dim, 1, args.pred_layers, train_args['pred_dropout']).to(device)
+    
+    score_func = kan_score(model.out_dim, model.out_dim, 1, args.pred_layers, train_args['pred_dropout']).to(device)
+               
     optimizer = torch.optim.Adam(list(model.parameters()) + list(score_func.parameters()), lr=train_args['lr'], weight_decay=train_args['weight_decay'])
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda e: train_args['decay'] ** e)
     
     kill_cnt = 0
     best_valid = 0
-
     for epoch in range(1, 1 + args.epochs):
         print(f">>> Epoch {epoch} - {datetime.now().strftime('%H:%M:%S')}\n" if verbose else "", flush=True, end="")
 
         loss = train_epoch(model, score_func, data, optimizer, args, device)
         print(f"Epoch {epoch} Loss: {loss:.4f}\n"  if verbose else "", end="")
-                    
+        writer.add_scalar('Loss/train', loss, epoch)  
         if epoch % args.eval_steps == 0:
             print("Evaluating model...\n" if verbose else "", flush=True, end="")
             
@@ -118,10 +122,12 @@ def train_loop(args, train_args, data, device, loggers, seed, model_save_name, v
 
             print(f"Epoch {epoch} Results:\n-----------------\n"  if verbose else "", end="", flush=True)
             for key, result in results_rank.items():
-                loggers[key].add_result(seed, result)
+                loggers[key].add_result(seed, result) 
                 if args.metric == key:
                     print(f"  {key} = {result}\n"  if verbose else "", end="", flush=True)
-
+            writer.add_scalar('MRR/train', results_rank['MRR'][0], epoch)
+            writer.add_scalar('MRR/val', results_rank['MRR'][1], epoch)  
+            writer.add_scalar('MRR/test', results_rank['MRR'][2], epoch)  
             best_valid_current = torch.tensor(loggers[eval_metric].results[seed])[:, 1].max()
 
             if best_valid_current > best_valid:
@@ -136,7 +142,7 @@ def train_loop(args, train_args, data, device, loggers, seed, model_save_name, v
                     break
                     
         scheduler.step()
-    
+    writer.close()
     return best_valid
 
 
