@@ -137,7 +137,50 @@ class MLP(nn.Module):
 
         return torch.sigmoid(x) if self.sigmoid else x
 
+class KANLayer(nn.Module):
+    def __init__(
+        self, 
+        num_layers,
+        in_channels, 
+        hid_channels, 
+        out_channels, 
+        drop=0,
+        norm="layer",
+        sigmoid=False,
+        bias=True
+    ):
+        super().__init__()
+        self.sigmoid = sigmoid
 
+        if norm == "batch":
+            self.norm = nn.BatchNorm1d(hid_channels)
+        elif norm == "layer":
+            self.norm = nn.LayerNorm(hid_channels)
+        else:
+            self.norm = None
+        width = [in_channels]
+        for i in range(num_layers - 2):
+            width.append(hidden_channels)
+        width.append(out_channels)
+        self.kan = KAN(width=width, grid=3, k=3)
+    def reset_parameters(self):
+        self.kan.reset_parameters()
+        
+        if self.norm is not None:
+            self.norm.reset_parameters()
+
+
+    def forward(self, x):
+        """
+        Forward Pass
+        """
+        
+        x = self.kan(x)
+        x = self.norm(x) if self.norm is not None else x
+        x = x.squeeze(-1)
+
+        return torch.sigmoid(x) if self.sigmoid else x
+        
 class kan_score(torch.nn.Module):
     def __init__(
         self, 

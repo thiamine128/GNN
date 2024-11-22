@@ -90,7 +90,7 @@ def train_loop(args, train_args, data, device, loggers, seed, model_save_name, v
     Train over N epochs
     """
     timestamp = int(time.time())
-    writer = SummaryWriter(f'runs/kan_{timestamp}')
+    writer = SummaryWriter(f'runs/kan_cora_{timestamp}')
     k_list = [20, 50, 100]
     eval_metric = args.metric
     evaluator_hit = Evaluator(name='ogbl-collab')

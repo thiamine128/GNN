@@ -63,10 +63,10 @@ class LinkTransformer(nn.Module):
         if self.num_layers > 1:
             self.att_layers.append(LinkTransformerLayer(self.dim, train_args, out_dim=self.dim, node_dim=self.dim))
 
-        self.elementwise_lin = MLP(2, self.dim, self.dim, self.dim)
+        self.elementwise_lin = KANLayer(2, self.dim, self.dim, self.dim)
         
         # Structural info
-        self.ppr_encoder_cn = MLP(2, 2, self.dim, self.dim)
+        self.ppr_encoder_cn = KANLayer(2, 2, self.dim, self.dim)
         if self.mask == "cn":
             count_dim = 1
         elif self.mask == "1-hop":
