@@ -49,7 +49,7 @@ class LinkTransformer(nn.Module):
         self.att_drop = train_args.get('att_drop', 0)
         self.num_layers = train_args['trans_layers']
         self.num_nodes = data['x'].shape[0]
-        self.out_dim = self.dim * 2
+        self.out_dim = self.dim
 
         self.gnn_norm = nn.LayerNorm(self.dim)
         self.node_encoder = NodeEncoder(data, train_args, device=device)
@@ -63,10 +63,10 @@ class LinkTransformer(nn.Module):
         if self.num_layers > 1:
             self.att_layers.append(LinkTransformerLayer(self.dim, train_args, out_dim=self.dim, node_dim=self.dim))
 
-        self.elementwise_lin = KANLayer(2, self.dim, self.dim, self.dim)
+        self.elementwise_lin = MLP(2, self.dim, self.dim, self.dim)
         
         # Structural info
-        self.ppr_encoder_cn = KANLayer(2, 2, self.dim, self.dim)
+        self.ppr_encoder_cn = MLP(2, 2, self.dim, self.dim)
         if self.mask == "cn":
             count_dim = 1
         elif self.mask == "1-hop":
@@ -106,8 +106,9 @@ class LinkTransformer(nn.Module):
         # pairwise_feats = s(a, b) || # of each type
         pairwise_feats, att_weights = self.calc_pairwise(batch, X_node, test_set, adj_mask=adj_mask, return_weights=return_weights)
         combined_feats = torch.cat((elementwise_edge_feats, pairwise_feats), dim=-1)
+        #print(elementwise_edge_feats.shape, pairwise_feats.shape, combined_feats.shape)
 
-        return combined_feats if not return_weights else (combined_feats, att_weights)
+        return pairwise_feats
     
 
     def propagate(self, adj=None, test_set=False):

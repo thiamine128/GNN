@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from time import perf_counter
 
 from util.utils import *
-from train.evaluation import get_metric_score, get_metric_score_citation2, evaluate_hits, evaluate_mrr, sample_level_hits
+from train.evaluation import get_metric_score, get_metric_score_citation2, evaluate_hits, evaluate_mrr, sample_level_hits, evaluate_auc
 
 
 
@@ -119,7 +119,6 @@ def test_heart_negatives(negative_data, model, score_func, batch_size=32768, tes
 
     return neg_preds
 
-
 def test(
         model, 
         score_func, 
@@ -171,6 +170,39 @@ def test(
 
     return result
 
+def test_rocauc(
+        model, 
+        score_func, 
+        data, 
+        batch_size,
+        threshold=0.5
+    ):
+    model.eval()
+    score_func.eval()
+
+    result = {}
+
+    with torch.no_grad():
+        valid_dat = torch.concat((data['valid_pos'], data['valid_neg']))
+        test_dat = torch.concat((data['test_pos'], data['test_neg']))
+
+        valid_true = torch.concat((torch.ones((data['valid_pos'].shape[0])), torch.zeros((data['valid_neg'].shape[0]))))
+        test_true = torch.concat((torch.ones((data['test_pos'].shape[0])), torch.zeros((data['test_neg'].shape[0]))))
+        train_true = torch.ones((data['train_pos'].shape[0]))
+        train_pred = test_edge(model, score_func, data['train_pos'], batch_size)
+        valid_pred = test_edge(model, score_func, valid_dat, batch_size)
+        test_pred = test_edge(model, score_func, test_dat, batch_size, test_set=True)
+        
+        valid_pred_labels = (valid_pred >= threshold).float()
+        valid_acc = (valid_pred_labels == valid_true).float().mean()
+        train_pred_labels = (train_pred >= threshold).float()
+        train_acc = (train_pred_labels == train_true).float().mean()
+        test_pred_labels = (test_pred >= threshold).float()
+        test_acc = (test_pred_labels == test_true).float().mean()
+        result['acc'] = (train_acc, valid_acc, test_acc)
+        result['rocauc'] = ('#', evaluate_auc(valid_pred, valid_true), evaluate_auc(test_pred, test_true))
+
+    return result
 
 ################################################################################
 ################################################################################

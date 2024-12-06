@@ -57,12 +57,20 @@ def train_epoch(model, score_func, data, optimizer, args, device):
         else:
             masked_adjt = None
 
-        h = model(edges, adj_prop=masked_adjt, adj_mask=masked_adj)
+        h = model(edges)
         pos_out = score_func(h)
         pos_loss = -torch.log(pos_out + 1e-6).mean()
 
         # Just do some trivial random sampling for negative samples
-        neg_edges = torch.randint(0, data['num_nodes'], (edges.size(0), edges.size(1) * args.num_negative), dtype=torch.long, device=h.device)
+        neg_edges = []
+        for i in range(args.num_negative * len(edges)):
+            u = random.randint(0, data['num_nodes'] - 1)
+            v = random.randint(0, data['num_nodes'] - 1)
+            while (u, v) in data['valid_pos_raw'] or (u, v) in data['train_pos_raw'] or (u, v) in data['test_pos_raw']:
+                u = random.randint(0, data['num_nodes'] - 1)
+                v = random.randint(0, data['num_nodes'] - 1)
+            neg_edges.append((u, v))
+        neg_edges = torch.tensor(neg_edges, dtype=torch.long, device=h.device)
         
         h = model(neg_edges)
         neg_out = score_func(h)
@@ -90,59 +98,38 @@ def train_loop(args, train_args, data, device, loggers, seed, model_save_name, v
     Train over N epochs
     """
     timestamp = int(time.time())
-    writer = SummaryWriter(f'runs/kan_cora_{timestamp}')
-    k_list = [20, 50, 100]
-    eval_metric = args.metric
-    evaluator_hit = Evaluator(name='ogbl-collab')
-    evaluator_mrr = Evaluator(name='ogbl-citation2') if 'MRR' in loggers else None
+    #writer = SummaryWriter(f'runs/kan_cora_{timestamp}')
 
     model = LinkTransformer(train_args, data, device=device).to(device)
-    # score_func = mlp_score(model.out_dim, model.out_dim, 1, args.pred_layers, train_args['pred_dropout']).to(device)
+    #score_func = mlp_score(model.out_dim, model.out_dim, 1, args.pred_layers, train_args['pred_dropout']).to(device)
     
     score_func = kan_score(model.out_dim, model.out_dim, 1, args.pred_layers, train_args['pred_dropout']).to(device)
                
     optimizer = torch.optim.Adam(list(model.parameters()) + list(score_func.parameters()), lr=train_args['lr'], weight_decay=train_args['weight_decay'])
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda e: train_args['decay'] ** e)
     
-    kill_cnt = 0
     best_valid = 0
     for epoch in range(1, 1 + args.epochs):
         print(f">>> Epoch {epoch} - {datetime.now().strftime('%H:%M:%S')}\n" if verbose else "", flush=True, end="")
 
         loss = train_epoch(model, score_func, data, optimizer, args, device)
         print(f"Epoch {epoch} Loss: {loss:.4f}\n"  if verbose else "", end="")
-        writer.add_scalar('Loss/train', loss, epoch)  
+        #writer.add_scalar('Loss/train', loss, epoch)  
         if epoch % args.eval_steps == 0:
             print("Evaluating model...\n" if verbose else "", flush=True, end="")
             
-            if "citation" not in args.data_name.lower() or args.heart:
-                results_rank = test(model, score_func, data, evaluator_hit, evaluator_mrr, args.test_batch_size, k_list, heart=args.heart)
-            else:
-                results_rank = test_citation2(model, score_func, data, evaluator_hit, evaluator_mrr, args.test_batch_size)
-
+            results = test_rocauc(model, score_func, data, args.test_batch_size)
+            
             print(f"Epoch {epoch} Results:\n-----------------\n"  if verbose else "", end="", flush=True)
-            for key, result in results_rank.items():
-                loggers[key].add_result(seed, result) 
-                if args.metric == key:
-                    print(f"  {key} = {result}\n"  if verbose else "", end="", flush=True)
-            writer.add_scalar('MRR/train', results_rank['MRR'][0], epoch)
+            print(f"  ACC = {results['acc']}\n"  if verbose else "", end="", flush=True)
+            print(f"  ROCAUC = {results['rocauc']}\n"  if verbose else "", end="", flush=True)
+            loggers['ACC'].add_result(seed, results['acc'])
+            '''writer.add_scalar('MRR/train', results_rank['MRR'][0], epoch)
             writer.add_scalar('MRR/val', results_rank['MRR'][1], epoch)  
-            writer.add_scalar('MRR/test', results_rank['MRR'][2], epoch)  
-            best_valid_current = torch.tensor(loggers[eval_metric].results[seed])[:, 1].max()
-
-            if best_valid_current > best_valid:
-                kill_cnt = 0
-                best_valid = best_valid_current
-                if model_save_name is not None:
-                    save_model(model, score_func, optimizer, model_save_name + ".pt")
-            else:
-                kill_cnt += 1
-                
-                if kill_cnt > args.kill_cnt: 
-                    break
+            writer.add_scalar('MRR/test', results_rank['MRR'][2], epoch)  '''
                     
         scheduler.step()
-    writer.close()
+    #writer.close()
     return best_valid
 
 
@@ -161,6 +148,7 @@ def train_data(args, train_args, data, device, verbose=True):
         'Hits@20': Logger(args.runs),
         'Hits@50': Logger(args.runs),
         'Hits@100': Logger(args.runs),
+        'ACC': Logger(args.runs)
     }
     if "citation" in data['dataset'] or data['dataset'] in ['cora', 'citeseer', 'pubmed',  'chameleon', 'squirrel', 'supplygraph'] or args.heart:
         loggers['MRR'] = Logger(args.runs)
@@ -180,7 +168,7 @@ def train_data(args, train_args, data, device, verbose=True):
         best_valid_results.append(best_valid)
 
     for key in loggers.keys():     
-        if key == args.metric:
+        if key == 'ACC':
             print(key + "\n" + "-" * len(key))  
             # Both lists. [0] = Train, [1] = Valid, [2] = Test
             best_mean, best_var = loggers[key].print_statistics()

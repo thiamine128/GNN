@@ -156,6 +156,7 @@ def read_data_supplygraph(args, device):
     train_pos, valid_pos, test_pos = [], [], []
     train_neg, valid_neg, test_neg = [], [], []
     node_feat = []
+    data = {"dataset": args.data_name}
 
     path = os.path.join(DATA_DIR, data_name, "train.csv")
     for line in open(path, 'r'):
@@ -177,6 +178,7 @@ def read_data_supplygraph(args, device):
         if node_map[sub] == node_map[obj]:
             continue
         train_pos.append((node_map[sub], node_map[obj]))
+    data['train_pos_raw'] = train_pos
     path = os.path.join(DATA_DIR, data_name, "test.csv")
     for line in open(path, 'r'):
         sub, obj, edget = line.strip().split(',')
@@ -197,7 +199,9 @@ def read_data_supplygraph(args, device):
         if node_map[sub] == node_map[obj]:
             continue
         test_pos.append((node_map[sub], node_map[obj]))
-    path = os.path.join(DATA_DIR, data_name, "val.csv")
+    data['test_pos_raw'] = test_pos
+
+    path = os.path.join(DATA_DIR, data_name, "neg_test.csv")
     for line in open(path, 'r'):
         sub, obj, edget = line.strip().split(',')
         if not node_map.__contains__(sub):
@@ -216,20 +220,37 @@ def read_data_supplygraph(args, device):
 
         if node_map[sub] == node_map[obj]:
             continue
+        test_neg.append((node_map[sub], node_map[obj]))
+    path = os.path.join(DATA_DIR, data_name, "val.csv")
+    for line in open(path, 'r'):
+        sub, obj, edget = line.strip().split(',')
+        if not node_map.__contains__(sub):
+            node_map[sub] = node_idx
+            node_idx = node_idx + 1
+            node_feat.append([0, 1, 1])
+        if not node_map.__contains__(obj):
+            node_map[obj] = node_idx
+            node_idx = node_idx + 1
+            if edget == 'Product-Plant':
+                node_feat.append([1, 0, 1])
+            else:
+                node_feat.append([1, 1, 0])
+        node_set.add(node_map[sub])
+        node_set.add(node_map[obj])
+
+        if node_map[sub] == node_map[obj]:
+            continue
         valid_pos.append((node_map[sub], node_map[obj]))
     num_nodes = len(node_set)
+    data['valid_pos_raw'] = valid_pos
 
-    for i in range(20):
+    for i in range(len(valid_pos)):
         u = random.randint(0, num_nodes - 1)
         v = random.randint(0, num_nodes - 1)
         while (u, v) in valid_pos or (u, v) in train_pos or (u, v) in test_pos:
             u = random.randint(0, num_nodes - 1)
             v = random.randint(0, num_nodes - 1)
-        print(u, v)
-        if i < 10:
-            test_neg.append((u, v))
-        else:
-            valid_neg.append((u, v))
+        valid_neg.append((u, v))
 
 
     print('# of nodes in ' + data_name + ' is: ', num_nodes)
@@ -252,7 +273,6 @@ def read_data_supplygraph(args, device):
 
     feature_embeddings = torch.tensor(node_feat, dtype=torch.float32)
 
-    data = {"dataset": args.data_name}
     data['edge_index'] = edge_index.to(device)
     data['num_nodes'] = num_nodes
 

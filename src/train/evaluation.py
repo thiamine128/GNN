@@ -126,7 +126,6 @@ def get_metric_score(evaluator_hit, evaluator_mrr, pos_train_pred, pos_val_pred,
 
     return result
 
-
 def get_metric_score_citation2(evaluator_mrr, pos_train_pred, pos_val_pred, neg_val_pred, pos_test_pred, neg_test_pred):
     """
     Specific to Citation2
